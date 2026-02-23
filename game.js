@@ -18,6 +18,10 @@ let items = [];
 
 let gameState = "menu";
 
+// DAMAGE COOLDOWN (FIX)
+let lastHitTime = 0;
+const HIT_COOLDOWN = 600;
+
 const player = {
   x: 0,
   y: 0,
@@ -81,12 +85,12 @@ function placePlayer() {
   player.x = Math.floor(r.x + r.w / 2);
   player.y = Math.floor(r.y + r.h / 2);
   player.hp = player.maxHp;
+  lastHitTime = 0; // reset invincibility
 }
 
 document.addEventListener("keydown", e => {
   if (gameState === "menu" && e.key === "Enter") startGame();
   if (gameState === "dead" && e.key === "r") startGame();
-
   if (gameState !== "game") return;
 
   let dx = 0, dy = 0;
@@ -126,9 +130,17 @@ function updateEnemies() {
     else
       e.y += Math.sign(dy);
 
+    // DAMAGE WITH COOLDOWN (FIX)
     if (e.x === player.x && e.y === player.y) {
-      player.hp--;
-      if (player.hp <= 0) gameState = "dead";
+      const now = Date.now();
+      if (now - lastHitTime > HIT_COOLDOWN) {
+        player.hp--;
+        lastHitTime = now;
+
+        if (player.hp <= 0) {
+          gameState = "dead";
+        }
+      }
     }
   });
 }
@@ -178,7 +190,7 @@ function draw() {
     ctx.font = "30px Arial";
     ctx.fillText("ROGUELIKE", 180, 200);
     ctx.font = "16px Arial";
-    ctx.fillText("Press ENTER to Start", 200, 240);
+    ctx.fillText("Press ENTER to Start", 190, 240);
     return;
   }
 
@@ -187,7 +199,7 @@ function draw() {
     ctx.font = "30px Arial";
     ctx.fillText("YOU DIED", 200, 200);
     ctx.font = "16px Arial";
-    ctx.fillText("Press R to Restart", 210, 240);
+    ctx.fillText("Press R to Restart", 195, 240);
     return;
   }
 
