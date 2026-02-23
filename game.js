@@ -12,7 +12,9 @@ canvas.width = VIEW_W * TILE;
 canvas.height = VIEW_H * TILE;
 
 // ---------- STATE ----------
-let gameState = "menu";
+let gameState = "menu"; // menu, game, dead, settings
+let previousState = "menu";
+
 let map = [];
 let rooms = [];
 let enemies = [];
@@ -101,6 +103,8 @@ function placePlayer() {
 
 // ---------- INPUT ----------
 document.addEventListener("keydown", e => {
+  if (e.key === "Escape") toggleSettings();
+
   if (gameState === "menu" && e.key === "Enter") startGame();
   if (gameState === "dead" && e.key === "r") startGame();
   if (gameState !== "game") return;
@@ -119,6 +123,16 @@ document.addEventListener("keydown", e => {
 
   if (e.key === " ") attack();
 });
+
+// ---------- SETTINGS ----------
+function toggleSettings() {
+  if (gameState === "settings") {
+    gameState = previousState;
+  } else {
+    previousState = gameState;
+    gameState = "settings";
+  }
+}
 
 // ---------- ENEMIES ----------
 function spawnEnemies() {
@@ -144,7 +158,7 @@ function updateEnemies() {
     let mx = Math.abs(dx) > Math.abs(dy) ? Math.sign(dx) : 0;
     let my = mx === 0 ? Math.sign(dy) : 0;
 
-    // Attack instead of stacking
+    // attack instead of stacking
     if (e.x + mx === player.x && e.y + my === player.y) {
       if (now - lastHitTime > HIT_COOLDOWN) {
         player.hp--;
@@ -152,11 +166,9 @@ function updateEnemies() {
         flashTime = now;
 
         // knockback player
-        const kx = -mx;
-        const ky = -my;
-        if (map[player.y + ky]?.[player.x + kx] === 1) {
-          player.x += kx;
-          player.y += ky;
+        if (map[player.y - my]?.[player.x - mx] === 1) {
+          player.x -= mx;
+          player.y -= my;
         }
 
         if (player.hp <= 0) gameState = "dead";
@@ -178,7 +190,7 @@ function attack() {
     if (dist === 1) {
       e.hp -= player.dmg;
 
-      // knockback enemy
+      // enemy knockback
       const kx = Math.sign(e.x - player.x);
       const ky = Math.sign(e.y - player.y);
       if (map[e.y + ky]?.[e.x + kx] === 1) {
@@ -233,20 +245,24 @@ function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   if (gameState === "menu") {
-    ctx.fillStyle = "white";
-    ctx.font = "28px Arial";
-    ctx.fillText("ROGUELIKE", 180, 200);
-    ctx.font = "16px Arial";
-    ctx.fillText("Press ENTER to Start", 170, 240);
+    drawCentered("ROGUELIKE", 200, 32);
+    drawCentered("ENTER – Start", 240, 16);
+    drawCentered("ESC – Settings", 265, 14);
     return;
   }
 
   if (gameState === "dead") {
-    ctx.fillStyle = "red";
-    ctx.font = "28px Arial";
-    ctx.fillText("YOU DIED", 190, 200);
-    ctx.font = "16px Arial";
-    ctx.fillText("Press R to Restart", 170, 240);
+    drawCentered("YOU DIED", 200, 32, "red");
+    drawCentered("R – Restart", 240, 16);
+    return;
+  }
+
+  if (gameState === "settings") {
+    drawCentered("SETTINGS", 160, 28);
+    drawCentered("W A S D – Move", 200, 16);
+    drawCentered("SPACE – Attack", 225, 16);
+    drawCentered("ESC – Close Menu", 250, 16);
+    drawCentered("ENTER – Start Game", 275, 16);
     return;
   }
 
@@ -283,7 +299,15 @@ function draw() {
 
   ctx.fillStyle = "white";
   ctx.fillText(`HP: ${player.hp}/${player.maxHp}`, 10, 18);
-  ctx.fillText(`LVL: ${player.level} XP: ${player.x}/${player.nextXP}`, 10, 36);
+  ctx.fillText(`LVL: ${player.level} XP: ${player.xp}/${player.nextXP}`, 10, 36);
+}
+
+function drawCentered(text, y, size = 20, color = "white") {
+  ctx.fillStyle = color;
+  ctx.font = `${size}px Arial`;
+  ctx.textAlign = "center";
+  ctx.fillText(text, canvas.width / 2, y);
+  ctx.textAlign = "left";
 }
 
 // ---------- LOOP ----------
