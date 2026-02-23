@@ -1,6 +1,7 @@
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
+// ---------- CONFIG ----------
 const TILE = 32;
 const MAP_W = 50;
 const MAP_H = 40;
@@ -10,18 +11,23 @@ const VIEW_H = 15;
 canvas.width = VIEW_W * TILE;
 canvas.height = VIEW_H * TILE;
 
-// 0 wall, 1 floor
+// ---------- GAME STATE ----------
+let gameState = "menu";
+
+// ---------- MAP DATA ----------
 let map = [];
 let rooms = [];
 let enemies = [];
 let items = [];
 
-let gameState = "menu";
-
-// DAMAGE COOLDOWN (FIX)
+// ---------- TIMERS ----------
+let lastEnemyMove = 0;
 let lastHitTime = 0;
-const HIT_COOLDOWN = 600;
 
+const ENEMY_MOVE_DELAY = 400; // ms
+const HIT_COOLDOWN = 800;     // ms
+
+// ---------- PLAYER ----------
 const player = {
   x: 0,
   y: 0,
@@ -30,7 +36,7 @@ const player = {
   dmg: 2
 };
 
-// ---------- MAP ----------
+// ---------- MAP GENERATION ----------
 function createMap() {
   map = Array.from({ length: MAP_H }, () =>
     Array(MAP_W).fill(0)
@@ -49,9 +55,11 @@ function generateRooms() {
 
     rooms.push({ x, y, w, h });
 
-    for (let yy = y; yy < y + h; yy++)
-      for (let xx = x; xx < x + w; xx++)
+    for (let yy = y; yy < y + h; yy++) {
+      for (let xx = x; xx < x + w; xx++) {
         map[yy][xx] = 1;
+      }
+    }
   }
 }
 
@@ -59,6 +67,7 @@ function connectRooms() {
   for (let i = 1; i < rooms.length; i++) {
     const a = rooms[i - 1];
     const b = rooms[i];
+
     carve(
       Math.floor(a.x + a.w / 2),
       Math.floor(a.y + a.h / 2),
@@ -85,9 +94,10 @@ function placePlayer() {
   player.x = Math.floor(r.x + r.w / 2);
   player.y = Math.floor(r.y + r.h / 2);
   player.hp = player.maxHp;
-  lastHitTime = 0; // reset invincibility
+  lastHitTime = 0;
 }
 
+// ---------- INPUT ----------
 document.addEventListener("keydown", e => {
   if (gameState === "menu" && e.key === "Enter") startGame();
   if (gameState === "dead" && e.key === "r") startGame();
@@ -121,28 +131,33 @@ function spawnEnemies() {
 }
 
 function updateEnemies() {
-  enemies.forEach(e => {
+  const now = Date.now();
+  if (now - lastEnemyMove < ENEMY_MOVE_DELAY) return;
+  lastEnemyMove = now;
+
+  for (let e of enemies) {
     let dx = player.x - e.x;
     let dy = player.y - e.y;
 
-    if (Math.abs(dx) > Math.abs(dy))
-      e.x += Math.sign(dx);
-    else
-      e.y += Math.sign(dy);
+    let mx = 0, my = 0;
+    if (Math.abs(dx) > Math.abs(dy)) mx = Math.sign(dx);
+    else my = Math.sign(dy);
 
-    // DAMAGE WITH COOLDOWN (FIX)
-    if (e.x === player.x && e.y === player.y) {
-      const now = Date.now();
+    // ATTACK instead of stacking
+    if (e.x + mx === player.x && e.y + my === player.y) {
       if (now - lastHitTime > HIT_COOLDOWN) {
         player.hp--;
         lastHitTime = now;
-
-        if (player.hp <= 0) {
-          gameState = "dead";
-        }
+        if (player.hp <= 0) gameState = "dead";
       }
+      return;
     }
-  });
+
+    if (map[e.y + my]?.[e.x + mx] === 1) {
+      e.x += mx;
+      e.y += my;
+    }
+  }
 }
 
 // ---------- COMBAT ----------
@@ -165,8 +180,7 @@ function spawnItems() {
   rooms.slice(1).forEach(r => {
     items.push({
       x: Math.floor(r.x + r.w / 2) + 1,
-      y: Math.floor(r.y + r.h / 2),
-      type: "heal"
+      y: Math.floor(r.y + r.h / 2)
     });
   });
 }
@@ -187,19 +201,19 @@ function draw() {
 
   if (gameState === "menu") {
     ctx.fillStyle = "white";
-    ctx.font = "30px Arial";
+    ctx.font = "28px Arial";
     ctx.fillText("ROGUELIKE", 180, 200);
     ctx.font = "16px Arial";
-    ctx.fillText("Press ENTER to Start", 190, 240);
+    ctx.fillText("Press ENTER to Start", 180, 240);
     return;
   }
 
   if (gameState === "dead") {
     ctx.fillStyle = "red";
-    ctx.font = "30px Arial";
-    ctx.fillText("YOU DIED", 200, 200);
+    ctx.font = "28px Arial";
+    ctx.fillText("YOU DIED", 190, 200);
     ctx.font = "16px Arial";
-    ctx.fillText("Press R to Restart", 195, 240);
+    ctx.fillText("Press R to Restart", 180, 240);
     return;
   }
 
@@ -218,22 +232,12 @@ function draw() {
 
   ctx.fillStyle = "green";
   items.forEach(i =>
-    ctx.fillRect(
-      (i.x - camX) * TILE,
-      (i.y - camY) * TILE,
-      TILE,
-      TILE
-    )
+    ctx.fillRect((i.x - camX) * TILE, (i.y - camY) * TILE, TILE, TILE)
   );
 
   ctx.fillStyle = "red";
   enemies.forEach(e =>
-    ctx.fillRect(
-      (e.x - camX) * TILE,
-      (e.y - camY) * TILE,
-      TILE,
-      TILE
-    )
+    ctx.fillRect((e.x - camX) * TILE, (e.y - camY) * TILE, TILE, TILE)
   );
 
   ctx.fillStyle = "cyan";
