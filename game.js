@@ -11,10 +11,8 @@ const VIEW_H = 15;
 canvas.width = VIEW_W * TILE;
 canvas.height = VIEW_H * TILE;
 
-// ---------- GAME STATE ----------
+// ---------- STATE ----------
 let gameState = "menu";
-
-// ---------- MAP DATA ----------
 let map = [];
 let rooms = [];
 let enemies = [];
@@ -23,56 +21,60 @@ let items = [];
 // ---------- TIMERS ----------
 let lastEnemyMove = 0;
 let lastHitTime = 0;
+let flashTime = 0;
 
-const ENEMY_MOVE_DELAY = 400; // ms
-const HIT_COOLDOWN = 800;     // ms
+const ENEMY_DELAY = 400;
+const HIT_COOLDOWN = 800;
+const FLASH_DURATION = 200;
 
 // ---------- PLAYER ----------
 const player = {
   x: 0,
   y: 0,
-  hp: 10,
-  maxHp: 10,
-  dmg: 2
+  hp: 12,
+  maxHp: 12,
+  dmg: 2,
+  level: 1,
+  xp: 0,
+  nextXP: 5
 };
 
-// ---------- MAP GENERATION ----------
+// ---------- MAP ----------
 function createMap() {
-  map = Array.from({ length: MAP_H }, () =>
-    Array(MAP_W).fill(0)
-  );
+  map = Array.from({ length: MAP_H }, () => Array(MAP_W).fill(0));
   rooms = [];
   enemies = [];
   items = [];
 }
 
 function generateRooms() {
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 7; i++) {
     const w = rand(4, 8);
     const h = rand(4, 8);
     const x = rand(1, MAP_W - w - 1);
     const y = rand(1, MAP_H - h - 1);
 
     rooms.push({ x, y, w, h });
-
-    for (let yy = y; yy < y + h; yy++) {
-      for (let xx = x; xx < x + w; xx++) {
+    for (let yy = y; yy < y + h; yy++)
+      for (let xx = x; xx < x + w; xx++)
         map[yy][xx] = 1;
-      }
-    }
   }
+
+  // Boss room
+  const boss = { x: MAP_W - 10, y: MAP_H - 10, w: 8, h: 8 };
+  rooms.push(boss);
+  for (let yy = boss.y; yy < boss.y + boss.h; yy++)
+    for (let xx = boss.x; xx < boss.x + boss.w; xx++)
+      map[yy][xx] = 1;
 }
 
 function connectRooms() {
   for (let i = 1; i < rooms.length; i++) {
-    const a = rooms[i - 1];
-    const b = rooms[i];
-
     carve(
-      Math.floor(a.x + a.w / 2),
-      Math.floor(a.y + a.h / 2),
-      Math.floor(b.x + b.w / 2),
-      Math.floor(b.y + b.h / 2)
+      Math.floor(rooms[i - 1].x + rooms[i - 1].w / 2),
+      Math.floor(rooms[i - 1].y + rooms[i - 1].h / 2),
+      Math.floor(rooms[i].x + rooms[i].w / 2),
+      Math.floor(rooms[i].y + rooms[i].h / 2)
     );
   }
 }
@@ -120,34 +122,43 @@ document.addEventListener("keydown", e => {
 
 // ---------- ENEMIES ----------
 function spawnEnemies() {
-  for (let i = 1; i < rooms.length; i++) {
-    const r = rooms[i];
+  rooms.slice(1).forEach((r, i) => {
     enemies.push({
       x: Math.floor(r.x + r.w / 2),
       y: Math.floor(r.y + r.h / 2),
-      hp: 3
+      hp: i === rooms.length - 1 ? 12 : 4,
+      boss: i === rooms.length - 1
     });
-  }
+  });
 }
 
 function updateEnemies() {
   const now = Date.now();
-  if (now - lastEnemyMove < ENEMY_MOVE_DELAY) return;
+  if (now - lastEnemyMove < ENEMY_DELAY) return;
   lastEnemyMove = now;
 
-  for (let e of enemies) {
+  enemies.forEach(e => {
     let dx = player.x - e.x;
     let dy = player.y - e.y;
 
-    let mx = 0, my = 0;
-    if (Math.abs(dx) > Math.abs(dy)) mx = Math.sign(dx);
-    else my = Math.sign(dy);
+    let mx = Math.abs(dx) > Math.abs(dy) ? Math.sign(dx) : 0;
+    let my = mx === 0 ? Math.sign(dy) : 0;
 
-    // ATTACK instead of stacking
+    // Attack instead of stacking
     if (e.x + mx === player.x && e.y + my === player.y) {
       if (now - lastHitTime > HIT_COOLDOWN) {
         player.hp--;
         lastHitTime = now;
+        flashTime = now;
+
+        // knockback player
+        const kx = -mx;
+        const ky = -my;
+        if (map[player.y + ky]?.[player.x + kx] === 1) {
+          player.x += kx;
+          player.y += ky;
+        }
+
         if (player.hp <= 0) gameState = "dead";
       }
       return;
@@ -157,27 +168,49 @@ function updateEnemies() {
       e.x += mx;
       e.y += my;
     }
-  }
+  });
 }
 
 // ---------- COMBAT ----------
 function attack() {
   enemies = enemies.filter(e => {
-    const dist =
-      Math.abs(e.x - player.x) +
-      Math.abs(e.y - player.y);
-
+    const dist = Math.abs(e.x - player.x) + Math.abs(e.y - player.y);
     if (dist === 1) {
       e.hp -= player.dmg;
-      return e.hp > 0;
+
+      // knockback enemy
+      const kx = Math.sign(e.x - player.x);
+      const ky = Math.sign(e.y - player.y);
+      if (map[e.y + ky]?.[e.x + kx] === 1) {
+        e.x += kx;
+        e.y += ky;
+      }
+
+      if (e.hp <= 0) {
+        gainXP(e.boss ? 5 : 1);
+        return false;
+      }
     }
     return true;
   });
 }
 
+// ---------- XP ----------
+function gainXP(amount) {
+  player.xp += amount;
+  if (player.xp >= player.nextXP) {
+    player.level++;
+    player.xp = 0;
+    player.nextXP += 5;
+    player.maxHp += 2;
+    player.hp = player.maxHp;
+    player.dmg++;
+  }
+}
+
 // ---------- ITEMS ----------
 function spawnItems() {
-  rooms.slice(1).forEach(r => {
+  rooms.slice(1, -1).forEach(r => {
     items.push({
       x: Math.floor(r.x + r.w / 2) + 1,
       y: Math.floor(r.y + r.h / 2)
@@ -188,7 +221,7 @@ function spawnItems() {
 function pickupItem() {
   items = items.filter(i => {
     if (i.x === player.x && i.y === player.y) {
-      player.hp = Math.min(player.maxHp, player.hp + 3);
+      player.hp = Math.min(player.maxHp, player.hp + 4);
       return false;
     }
     return true;
@@ -204,7 +237,7 @@ function draw() {
     ctx.font = "28px Arial";
     ctx.fillText("ROGUELIKE", 180, 200);
     ctx.font = "16px Arial";
-    ctx.fillText("Press ENTER to Start", 180, 240);
+    ctx.fillText("Press ENTER to Start", 170, 240);
     return;
   }
 
@@ -213,7 +246,7 @@ function draw() {
     ctx.font = "28px Arial";
     ctx.fillText("YOU DIED", 190, 200);
     ctx.font = "16px Arial";
-    ctx.fillText("Press R to Restart", 180, 240);
+    ctx.fillText("Press R to Restart", 170, 240);
     return;
   }
 
@@ -224,8 +257,7 @@ function draw() {
     for (let x = 0; x < VIEW_W; x++) {
       const mx = x + camX;
       const my = y + camY;
-      ctx.fillStyle =
-        map[my]?.[mx] === 1 ? "#444" : "#111";
+      ctx.fillStyle = map[my]?.[mx] === 1 ? "#444" : "#111";
       ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
     }
   }
@@ -235,12 +267,13 @@ function draw() {
     ctx.fillRect((i.x - camX) * TILE, (i.y - camY) * TILE, TILE, TILE)
   );
 
-  ctx.fillStyle = "red";
-  enemies.forEach(e =>
-    ctx.fillRect((e.x - camX) * TILE, (e.y - camY) * TILE, TILE, TILE)
-  );
+  enemies.forEach(e => {
+    ctx.fillStyle = e.boss ? "purple" : "red";
+    ctx.fillRect((e.x - camX) * TILE, (e.y - camY) * TILE, TILE, TILE);
+  });
 
-  ctx.fillStyle = "cyan";
+  ctx.fillStyle =
+    Date.now() - flashTime < FLASH_DURATION ? "white" : "cyan";
   ctx.fillRect(
     (player.x - camX) * TILE,
     (player.y - camY) * TILE,
@@ -249,7 +282,8 @@ function draw() {
   );
 
   ctx.fillStyle = "white";
-  ctx.fillText(`HP: ${player.hp}`, 10, 20);
+  ctx.fillText(`HP: ${player.hp}/${player.maxHp}`, 10, 18);
+  ctx.fillText(`LVL: ${player.level} XP: ${player.x}/${player.nextXP}`, 10, 36);
 }
 
 // ---------- LOOP ----------
